@@ -1,6 +1,6 @@
+#include "php.h"
 #include <openssl/aes.h>
 #include <openssl/evp.h>
-#include <php.h>
 
 // Функция дешифровки для PHP
 PHP_FUNCTION(laradecrypt) {

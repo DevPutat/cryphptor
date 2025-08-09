@@ -7,6 +7,7 @@ import (
 	"crypto/sha256"
 	"io"
 	"os"
+	"path/filepath"
 
 	"golang.org/x/crypto/hkdf"
 )
@@ -37,9 +38,9 @@ func (e *Encryptor) Encrypt(src string, dst string) error {
 		return err
 	}
 
-	hkdfKey := hkdf.New(sha256.New, e.key, nonce, []byte("cryphptor"))
+	hkdfReader := hkdf.New(sha256.New, e.key, nonce, []byte("cryphptor"))
 	encryptKey := make([]byte, 32)
-	if _, err := io.ReadFull(hkdfKey, encryptKey); err != nil {
+	if _, err := io.ReadFull(hkdfReader, encryptKey); err != nil {
 		return err
 	}
 
@@ -73,5 +74,64 @@ func (e *Encryptor) Encrypt(src string, dst string) error {
 		}
 	}
 
+	return nil
+}
+
+func (e *Encryptor) Decrypt(src string, dst string) error {
+	inFile, err := os.Open(src)
+	if err != nil {
+		return nil
+	}
+
+	defer inFile.Close()
+
+	if err := os.MkdirAll(filepath.Dir(dst), 0755); err != nil {
+		return err
+	}
+
+	outFile, err := os.Create(dst)
+	if err != nil {
+		return nil
+	}
+
+	defer outFile.Close()
+
+	nonce := make([]byte, 12)
+	if _, err := io.ReadFull(inFile, nonce); err != nil {
+		return err
+	}
+
+	hkdfReader := hkdf.New(sha256.New, e.key, nonce, []byte("cryphptor"))
+	decryptKey := make([]byte, 32)
+	if _, err := io.ReadFull(hkdfReader, decryptKey); err != nil {
+		return err
+	}
+
+	block, err := aes.NewCipher(decryptKey)
+	if err != nil {
+		return err
+	}
+	aesGCM, err := cipher.NewGCM(block)
+	if err != nil {
+		return err
+	}
+	buf := make([]byte, 4096+16)
+	for {
+		n, err := inFile.Read(buf)
+		if err != nil && err != io.EOF {
+			return err
+		}
+		if n == 0 {
+			break
+		}
+
+		decrypted, err := aesGCM.Open(nil, nonce, buf[:n], nil)
+		if err != nil {
+			return err
+		}
+		if _, err := outFile.Write(decrypted); err != nil {
+			return err
+		}
+	}
 	return nil
 }

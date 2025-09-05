@@ -1,0 +1,40 @@
+# Сборка PHP с расширением cryphptor
+FROM php:8.2-cli as builder
+
+# Установка зависимостей
+RUN apt-get update && apt-get install -y \
+    libssl-dev \
+    autoconf \
+    build-essential \
+    git
+
+# Копируем исходники расширения
+WORKDIR /usr/src/php/ext/cryphptor
+COPY cryphptor.c /usr/src/php/ext/cryphptor/
+COPY config.m4 /usr/src/php/ext/cryphptor/
+
+# Сборка расширения
+RUN docker-php-ext-configure cryphptor && \
+    docker-php-ext-build cryphptor
+
+# Финальный образ
+FROM php:8.2-cli
+
+# Копируем собранное расширение
+COPY --from=builder /usr/src/php/ext/cryphptor/modules/cryphptor.so /usr/local/lib/php/extensions/no-debug-non-zts-*/cryphptor.so
+
+# Включаем расширение
+RUN echo "extension=cryphptor.so" > /usr/local/etc/php/conf.d/docker-php-ext-cryphptor.ini
+
+# Устанавливаем Composer
+RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+
+# Оптимизации для production
+RUN useradd -m appuser && \
+    chown -R appuser:appuser /var/www
+
+USER appuser
+WORKDIR /var/www
+
+# Дефолтная команда
+CMD ["php", "-a"]

@@ -1,40 +1,44 @@
-# Сборка PHP с расширением cryphptor
-FROM php:8.2-cli as builder
+# Dockerfile.phpfpm - для выполнения зашифрованных PHP файлов
+# Этот файл будет использоваться как шаблон для разных версий PHP
 
-# Установка зависимостей
+# Аргумент для выбора версии PHP
+ARG PHP_VERSION=8.3-fpm
+FROM php:${PHP_VERSION}
+
+# Устанавливаем зависимости для сборки расширения и CLI инструмента
 RUN apt-get update && apt-get install -y \
+    git \
     libssl-dev \
-    autoconf \
-    build-essential \
-    git
+    wget \
+    && docker-php-source extract \
+    && docker-php-ext-install opcache \
+    && docker-php-source delete \
+    && rm -rf /var/lib/apt/lists/*
 
-# Копируем исходники расширения
-WORKDIR /usr/src/php/ext/cryphptor
-COPY cryphptor.c /usr/src/php/ext/cryphptor/
-COPY config.m4 /usr/src/php/ext/cryphptor/
+# Устанавливаем Go
+RUN wget https://golang.org/dl/go1.24.2.linux-amd64.tar.gz && \
+    tar -C /usr/local -xzf go1.24.2.linux-amd64.tar.gz && \
+    rm go1.24.2.linux-amd64.tar.gz
+ENV PATH=$PATH:/usr/local/go/bin
 
-# Сборка расширения
-RUN docker-php-ext-configure cryphptor && \
-    docker-php-ext-build cryphptor
+# Копируем исходный код
+COPY . /usr/src/cryphptor
 
-# Финальный образ
-FROM php:8.2-cli
+# Собираем CLI инструмент cryphptor
+WORKDIR /usr/src/cryphptor
+RUN go build -ldflags "-s -w" -o dist/cryphptor ./cmd/cryphptor
 
-# Копируем собранное расширение
-COPY --from=builder /usr/src/php/ext/cryphptor/modules/cryphptor.so /usr/local/lib/php/extensions/no-debug-non-zts-*/cryphptor.so
+# Собираем и устанавливаем расширение
+WORKDIR /usr/src/cryphptor/dist/phpext
+RUN phpize \
+    && ./configure \
+    && make \
+    && make install \
+    && docker-php-ext-enable cryphptor
 
-# Включаем расширение
-RUN echo "extension=cryphptor.so" > /usr/local/etc/php/conf.d/docker-php-ext-cryphptor.ini
+# Устанавливаем рабочую директорию
+WORKDIR /var/www/html
 
-# Устанавливаем Composer
-RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
-
-# Оптимизации для production
-RUN useradd -m appuser && \
-    chown -R appuser:appuser /var/www
-
-USER appuser
-WORKDIR /var/www
-
-# Дефолтная команда
-CMD ["php", "-a"]
+# Устанавливаем точку входа
+ENTRYPOINT ["docker-php-entrypoint"]
+CMD ["php-fpm"]

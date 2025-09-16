@@ -1,0 +1,34 @@
+# Dockerfile.cryphptor - для шифрования PHP файлов
+
+# Используем официальный образ Go как базовый
+FROM golang:1.24-alpine AS builder
+
+# Устанавливаем зависимости
+RUN apk add --no-cache git
+
+# Устанавливаем рабочую директорию
+WORKDIR /app
+
+# Копируем go модули файлы
+COPY go.mod go.sum ./
+
+# Загружаем зависимости
+RUN go mod download
+
+# Копируем исходный код
+COPY . .
+
+# Собираем бинарный файл cryphptor
+RUN go build -ldflags "-s -w" -o /go/bin/cryphptor ./cmd/cryphptor
+
+# Используем минимальный образ для финального контейнера
+FROM alpine:latest
+
+# Устанавливаем необходимые зависимости
+RUN apk add --no-cache ca-certificates
+
+# Копируем бинарный файл из builder stage
+COPY --from=builder /go/bin/cryphptor /usr/local/bin/cryphptor
+
+# Устанавливаем точку входа
+ENTRYPOINT ["cryphptor"]

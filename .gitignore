@@ -30,6 +30,8 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+.qwen
+QWEN.*
 
 # Test files and directories
 test_volume/

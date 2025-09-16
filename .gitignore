@@ -30,3 +30,8 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Test files and directories
+test_volume/
+dist/
+*.tar.gz

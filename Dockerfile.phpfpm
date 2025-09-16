@@ -1,0 +1,44 @@
+# Dockerfile.phpfpm - для выполнения зашифрованных PHP файлов
+# Этот файл будет использоваться как шаблон для разных версий PHP
+
+# Аргумент для выбора версии PHP
+ARG PHP_VERSION=8.3-fpm
+FROM php:${PHP_VERSION}
+
+# Устанавливаем зависимости для сборки расширения и CLI инструмента
+RUN apt-get update && apt-get install -y \
+    git \
+    libssl-dev \
+    wget \
+    && docker-php-source extract \
+    && docker-php-ext-install opcache \
+    && docker-php-source delete \
+    && rm -rf /var/lib/apt/lists/*
+
+# Устанавливаем Go
+RUN wget https://golang.org/dl/go1.24.2.linux-amd64.tar.gz && \
+    tar -C /usr/local -xzf go1.24.2.linux-amd64.tar.gz && \
+    rm go1.24.2.linux-amd64.tar.gz
+ENV PATH=$PATH:/usr/local/go/bin
+
+# Копируем исходный код
+COPY . /usr/src/cryphptor
+
+# Собираем CLI инструмент cryphptor
+WORKDIR /usr/src/cryphptor
+RUN go build -ldflags "-s -w" -o dist/cryphptor ./cmd/cryphptor
+
+# Собираем и устанавливаем расширение
+WORKDIR /usr/src/cryphptor/dist/phpext
+RUN phpize \
+    && ./configure \
+    && make \
+    && make install \
+    && docker-php-ext-enable cryphptor
+
+# Устанавливаем рабочую директорию
+WORKDIR /var/www/html
+
+# Устанавливаем точку входа
+ENTRYPOINT ["docker-php-entrypoint"]
+CMD ["php-fpm"]

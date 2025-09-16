@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  cryphptor-test:
+    build:
+      context: .
+      dockerfile: Dockerfile.phpfpm
+    environment:
+      - ENCRYPTION_KEY=testencryptionkey12345
+    volumes:
+      - ./test_files_encrypted:/var/www/html
+      - ./test_decrypt.php:/var/www/html/test_decrypt.php
+    ports:
+      - "9000:9000"

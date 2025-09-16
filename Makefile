@@ -39,9 +39,19 @@ vet:
 lint:
 	golangci-lint run
 
-docker:
+docker: cryphptor-docker docker-latest docker-74 docker-84
+
+cryphptor-docker:
 	docker build -t cryphptor-cryphptor -f Dockerfile.cryphptor .
+
+docker-latest:
 	docker build -t cryphptor-phpfpm -f Dockerfile.phpfpm .
+
+docker-74:
+	docker build -t cryphptor-phpfpm-7.4 -f Dockerfile.phpfpm-7.4 .
+
+docker-84:
+	docker build -t cryphptor-phpfpm-8.4 -f Dockerfile.phpfpm-8.4 .
 
 run: loader
 	$(LOADER_BINARY) --config=config.yaml

@@ -1,0 +1,22 @@
+# Dockerfile.build - для сборки PHP расширения
+FROM php:8.3-cli
+
+# Устанавливаем зависимости для сборки расширения
+RUN apt-get update && apt-get install -y \
+    git \
+    libssl-dev \
+    && docker-php-source extract \
+    && rm -rf /var/lib/apt/lists/*
+
+# Копируем исходный код расширения
+COPY dist/phpext /usr/src/cryphptor
+
+# Собираем и устанавливаем расширение
+WORKDIR /usr/src/cryphptor
+RUN phpize \
+    && ./configure \
+    && make \
+    && make install
+
+# Проверяем, что расширение установлено
+RUN php -m | grep cryphptor

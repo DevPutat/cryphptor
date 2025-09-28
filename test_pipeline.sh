@@ -7,12 +7,13 @@ echo "=== Тестирование полного конвейера cryphptor =
 
 # Создаем директорию для теста
 TEST_DIR="/tmp/cryphptor_test"
-mkdir -p "$TEST_DIR"
-cp test.php "$TEST_DIR/"
+rm -rf "$TEST_DIR"  # Удаляем старую директорию, если существует
+mkdir -p "$TEST_DIR/test_source"  # Создаем отдельную директорию для исходных файлов
+cp test.php "$TEST_DIR/test_source/"
 
 echo "1. Шифрование тестового файла..."
 mkdir -p "$TEST_DIR/encrypted"
-./dist/cryphptor -key="testencryptionkey12345" -root="$TEST_DIR" -dist="$TEST_DIR/encrypted"
+./dist/cryphptor -key="testencryptionkey12345" -root="$TEST_DIR/test_source" -dist="$TEST_DIR/encrypted"
 
 echo "2. Проверка наличия зашифрованного файла..."
 if [ -f "$TEST_DIR/encrypted/test.php" ]; then
@@ -29,12 +30,14 @@ mkdir -p "$TEST_DIR/decrypted"
 
 echo "4. Сравнение исходного и дешифрованного файлов..."
 # Сравниваем файлы
-if cmp -s "$TEST_DIR/test.php" "$TEST_DIR/decrypted/test.php"; then
+if cmp -s "$TEST_DIR/test_source/test.php" "$TEST_DIR/decrypted/test.php" ]; then
     echo "   Файлы совпадают - шифрование/дешифрование работает корректно"
 else
     echo "   ОШИБКА: Файлы не совпадают"
     echo "   Исходный файл:"
-    cat "$TEST_DIR/test.php"
+    cat "$TEST_DIR/test_source/test.php"
+    echo "   Зашифрованный файл (hex):"
+    hexdump -C "$TEST_DIR/encrypted/test.php" | head -20
     echo "   Дешифрованный файл:"
     cat "$TEST_DIR/decrypted/test.php"
     exit 1

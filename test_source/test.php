@@ -1,0 +1,1 @@
+<?php\n// test.php - тестовый файл для проверки шифрования/дешифрования\n\necho \"Hello, World! This is a test PHP file.\\n\";\n\n// Простая функция для тестирования\nfunction testFunction() {\n    return \"This is a test function output.\";\n}\n\necho testFunction() . \"\\n\";\n?>

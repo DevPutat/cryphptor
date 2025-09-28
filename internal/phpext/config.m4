@@ -9,4 +9,5 @@ if test "$PHP_CRYPTHPTOR" != "no"; then
   AC_DEFINE(HAVE_CRYPTHPTOR, 1, [ ])
   PHP_NEW_EXTENSION(cryphptor, cryphptor.c, $ext_shared)
   PHP_ADD_LIBRARY_WITH_PATH(crypto, [], CRYPTHPTOR_SHARED_LIBADD)
+  PHP_ADD_LIBRARY_WITH_PATH(ssl, [], CRYPTHPTOR_SHARED_LIBADD)
 fi

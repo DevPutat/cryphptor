@@ -1,1 +1,4 @@
-// package phpext
+// Package phpext contains the implementation of the PHP extension for cryphptor
+// The extension allows for automatic decryption of encrypted PHP files at runtime
+// using a stream wrapper approach.
+package phpext

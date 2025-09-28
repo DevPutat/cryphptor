@@ -58,20 +58,17 @@ func (e *Encryptor) Encrypt(src string, dst string) error {
 		return err
 	}
 
-	buf := make([]byte, 4096)
-	for {
-		n, err := inFile.Read(buf)
-		if err != nil && err != io.EOF {
-			return err
-		}
-		if n == 0 {
-			break
-		}
+	// Читаем весь файл в память
+	fileData, err := io.ReadAll(inFile)
+	if err != nil {
+		return err
+	}
 
-		encrypted := aesGCM.Seal(nil, nonce, buf[:n], nil)
-		if _, err := outFile.Write(encrypted); err != nil {
-			return err
-		}
+	// Шифруем все данные целиком с использованием одного nonce
+	encrypted := aesGCM.Seal(nil, nonce, fileData, nil)
+	
+	if _, err := outFile.Write(encrypted); err != nil {
+		return err
 	}
 
 	return nil
@@ -80,7 +77,7 @@ func (e *Encryptor) Encrypt(src string, dst string) error {
 func (e *Encryptor) Decrypt(src string, dst string) error {
 	inFile, err := os.Open(src)
 	if err != nil {
-		return nil
+		return err
 	}
 
 	defer inFile.Close()
@@ -91,7 +88,7 @@ func (e *Encryptor) Decrypt(src string, dst string) error {
 
 	outFile, err := os.Create(dst)
 	if err != nil {
-		return nil
+		return err
 	}
 
 	defer outFile.Close()
@@ -115,23 +112,22 @@ func (e *Encryptor) Decrypt(src string, dst string) error {
 	if err != nil {
 		return err
 	}
-	buf := make([]byte, 4096+16)
-	for {
-		n, err := inFile.Read(buf)
-		if err != nil && err != io.EOF {
-			return err
-		}
-		if n == 0 {
-			break
-		}
-
-		decrypted, err := aesGCM.Open(nil, nonce, buf[:n], nil)
-		if err != nil {
-			return err
-		}
-		if _, err := outFile.Write(decrypted); err != nil {
-			return err
-		}
+	
+	// Читаем все зашифрованные данные
+	encryptedData, err := io.ReadAll(inFile)
+	if err != nil {
+		return err
 	}
+
+	// Расшифровываем все данные целиком
+	decrypted, err := aesGCM.Open(nil, nonce, encryptedData, nil)
+	if err != nil {
+		return err
+	}
+	
+	if _, err := outFile.Write(decrypted); err != nil {
+		return err
+	}
+	
 	return nil
 }

@@ -1,0 +1,1 @@
+<?php\n// main.php - основной файл для тестирования\n\nrequire_once 'utils.php';\n\necho \"Выполняется основной файл.\\n\";\n\n$result = doSomething();\necho \"Результат из второго файла: $result\\n\";\n\necho \"Основной файл завершил выполнение.\\n\";\n?>\n

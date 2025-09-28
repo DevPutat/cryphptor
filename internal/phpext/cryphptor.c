@@ -1,5 +1,6 @@
 #include "php.h"
 #include "ext/standard/info.h"
+#include "ext/standard/file.h"
 #include <openssl/evp.h>
 #include <openssl/kdf.h>
 #include <openssl/rand.h>
@@ -9,55 +10,32 @@
 
 #define CRYPTHPTOR_MIN_SIZE 28 // 12 (nonce) + 16 (tag)
 
-static zend_op_array *(*orig_compile_file)(zend_file_handle *, int TSRMLS_DC);
+// Структура для данных потока
+typedef struct {
+    unsigned char *decrypted_data;
+    size_t decrypted_size;
+    size_t pos;
+} cryphptor_stream_data;
 
-static zend_op_array *cryphptor_compile_file(zend_file_handle *file_handle, int type TSRMLS_DC) {
-    // Проверяем тип файла
-    if (file_handle->type != ZEND_HANDLE_FILENAME) {
-        return orig_compile_file(file_handle, type TSRMLS_CC);
-    }
-
-    // Открываем файл
-    FILE *fp = fopen(file_handle->filename, "rb");
-    if (!fp) {
-        return orig_compile_file(file_handle, type TSRMLS_CC);
-    }
-
-    // Получаем размер файла
-    fseek(fp, 0, SEEK_END);
-    long file_size = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
-
-    // Проверяем минимальный размер
-    if (file_size < CRYPTHPTOR_MIN_SIZE) {
-        fclose(fp);
-        return orig_compile_file(file_handle, type TSRMLS_CC);
-    }
-
-    // Читаем файл в память
-    unsigned char *ciphertext = emalloc(file_size);
-    size_t read_size = fread(ciphertext, 1, file_size, fp);
-    fclose(fp);
-
-    if (read_size != file_size) {
-        efree(ciphertext);
-        return orig_compile_file(file_handle, type TSRMLS_CC);
+// Функция для дешифровки
+static int cryphptor_decrypt_data(const char *ciphertext, size_t ciphertext_len, unsigned char **plaintext, size_t *plaintext_len TSRMLS_DC) {
+    if (ciphertext_len < CRYPTHPTOR_MIN_SIZE) {
+        return 0; // Слишком маленький размер для дешифровки
     }
 
     // Извлекаем компоненты
-    unsigned char *nonce = ciphertext;                  // 12 байт
-    unsigned char *ciphertext_and_tag = ciphertext + 12; // Остальное
-    size_t ct_len = file_size - 12;
-    unsigned char *tag = ciphertext_and_tag + (ct_len - 16);
-    unsigned char *ct = ciphertext_and_tag;
+    const unsigned char *nonce = (const unsigned char *)ciphertext;                  // 12 байт
+    const unsigned char *ciphertext_and_tag = (const unsigned char *)(ciphertext + 12); // Остальное
+    size_t ct_len = ciphertext_len - 12;
+    const unsigned char *tag = ciphertext_and_tag + (ct_len - 16);
+    const unsigned char *ct = ciphertext_and_tag;
 
     // Получаем ключ из окружения
     char *env_key = getenv("DECRYPTION_KEY");
     if (!env_key || strlen(env_key) != 32) {
         php_error_docref(NULL TSRMLS_CC, E_ERROR, 
             "Invalid DECRYPTION_KEY length. Must be exactly 32 bytes");
-        efree(ciphertext);
-        return NULL;
+        return 0;
     }
 
     // Генерация ключа через HKDF
@@ -66,8 +44,7 @@ static zend_op_array *cryphptor_compile_file(zend_file_handle *file_handle, int 
         EVP_PKEY_CTX *pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_HKDF, NULL);
         if (!pctx) {
             php_error_docref(NULL TSRMLS_CC, E_ERROR, "HKDF context creation failed");
-            efree(ciphertext);
-            return NULL;
+            return 0;
         }
 
         EVP_PKEY_derive_init(pctx);
@@ -80,8 +57,7 @@ static zend_op_array *cryphptor_compile_file(zend_file_handle *file_handle, int 
         if (EVP_PKEY_derive(pctx, decrypt_key, &outlen) <= 0) {
             EVP_PKEY_CTX_free(pctx);
             php_error_docref(NULL TSRMLS_CC, E_ERROR, "HKDF derivation failed");
-            efree(ciphertext);
-            return NULL;
+            return 0;
         }
         EVP_PKEY_CTX_free(pctx);
     }
@@ -90,86 +66,153 @@ static zend_op_array *cryphptor_compile_file(zend_file_handle *file_handle, int 
     EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
     if (!ctx) {
         php_error_docref(NULL TSRMLS_CC, E_ERROR, "Cipher context creation failed");
-        efree(ciphertext);
-        return NULL;
+        return 0;
     }
 
     if (!EVP_DecryptInit_ex(ctx, EVP_aes_256_gcm(), NULL, decrypt_key, nonce)) {
         php_error_docref(NULL TSRMLS_CC, E_ERROR, "Decryption init failed");
         EVP_CIPHER_CTX_free(ctx);
-        efree(ciphertext);
-        return NULL;
+        return 0;
     }
 
     EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, 16, tag);
 
-    int plaintext_len = ct_len - 16;
-    unsigned char *plaintext = emalloc(plaintext_len);
+    *plaintext_len = ct_len - 16;
+    *plaintext = emalloc(*plaintext_len + 1); // +1 для завершающего нуля
     int len;
 
-    if (!EVP_DecryptUpdate(ctx, plaintext, &len, ct, ct_len - 16)) {
+    if (!EVP_DecryptUpdate(ctx, *plaintext, &len, ct, ct_len - 16)) {
         php_error_docref(NULL TSRMLS_CC, E_ERROR, "Decryption update failed");
-        efree(plaintext);
+        efree(*plaintext);
         EVP_CIPHER_CTX_free(ctx);
-        efree(ciphertext);
-        return NULL;
+        return 0;
     }
 
-    plaintext_len = len;
-    if (!EVP_DecryptFinal_ex(ctx, plaintext + len, &len)) {
+    *plaintext_len = len;
+    if (!EVP_DecryptFinal_ex(ctx, (*plaintext) + len, &len)) {
         php_error_docref(NULL TSRMLS_CC, E_ERROR, "Decryption failed (invalid tag)");
-        efree(plaintext);
+        efree(*plaintext);
         EVP_CIPHER_CTX_free(ctx);
-        efree(ciphertext);
-        return NULL;
+        return 0;
     }
-    plaintext_len += len;
+    *plaintext_len += len;
+    (*plaintext)[*plaintext_len] = '\0'; // Добавляем завершающий ноль
 
     EVP_CIPHER_CTX_free(ctx);
-    efree(ciphertext);
-
-    // Создаем временный файл
-    char tmp_path[] = "/tmp/cryphptor_XXXXXX";
-    int fd = mkstemp(tmp_path);
-    if (fd == -1) {
-        php_error_docref(NULL TSRMLS_CC, E_ERROR, "Temp file creation failed");
-        efree(plaintext);
-        return NULL;
-    }
-
-    if (write(fd, plaintext, plaintext_len) != plaintext_len) {
-        php_error_docref(NULL TSRMLS_CC, E_ERROR, "Temp file write failed");
-        close(fd);
-        unlink(tmp_path);
-        efree(plaintext);
-        return NULL;
-    }
-
-    close(fd);
-    efree(plaintext);
-
-    // Компилируем расшифрованный файл
-    zend_file_handle tmp_file = {0};
-    tmp_file.type = ZEND_HANDLE_FILENAME;
-    tmp_file.filename = tmp_path;
-    zend_op_array *op_array = orig_compile_file(&tmp_file, type TSRMLS_CC);
-
-    // Удаляем временный файл
-    unlink(tmp_path);
-
-    return op_array;
+    return 1;
 }
 
+// Stream wrapper operations
+static php_stream *php_cryphptor_stream_opener(php_stream_wrapper *wrapper, 
+                                              const char *filename, 
+                                              const char *mode, 
+                                              int options, 
+                                              zend_string **opened_path, 
+                                              php_stream_context *context STREAMS_DC TSRMLS_DC) {
+    php_stream *stream = NULL;
+    FILE *fp = NULL;
+    char *actual_filename = (char *)filename;
+    
+    // Если имя файла начинается с cryphptor://, убираем префикс
+    if (strncmp(filename, "cryphptor://", 12) == 0) {
+        actual_filename += 12;
+    }
+    
+    // Открываем зашифрованный файл
+    fp = fopen(actual_filename, "rb");
+    if (!fp) {
+        return NULL;
+    }
+
+    // Получаем размер файла
+    fseek(fp, 0, SEEK_END);
+    long file_size = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
+
+    // Проверяем минимальный размер
+    if (file_size < CRYPTHPTOR_MIN_SIZE) {
+        fclose(fp);
+        return NULL;
+    }
+
+    // Читаем файл в память
+    char *ciphertext = emalloc(file_size);
+    size_t read_size = fread(ciphertext, 1, file_size, fp);
+    fclose(fp);
+
+    if (read_size != file_size) {
+        efree(ciphertext);
+        return NULL;
+    }
+
+    // Дешифруем данные
+    unsigned char *plaintext = NULL;
+    size_t plaintext_len = 0;
+    if (!cryphptor_decrypt_data(ciphertext, file_size, &plaintext, &plaintext_len TSRMLS_CC)) {
+        efree(ciphertext);
+        return NULL;
+    }
+    
+    efree(ciphertext);
+
+    // Создаем структуру данных потока
+    cryphptor_stream_data *stream_data = emalloc(sizeof(cryphptor_stream_data));
+    stream_data->decrypted_data = plaintext;
+    stream_data->decrypted_size = plaintext_len;
+    stream_data->pos = 0;
+
+    // Создаем поток в памяти
+    stream = php_stream_alloc(&php_stream_memory_ops, stream_data, 0, "rb");
+    if (!stream) {
+        efree(plaintext);
+        efree(stream_data);
+        return NULL;
+    }
+
+    if (opened_path) {
+        *opened_path = zend_string_init(actual_filename, strlen(actual_filename), 0);
+    }
+    
+    return stream;
+}
+
+// Stream wrapper для cryphptor
+static php_stream_wrapper_ops php_cryphptor_wrapper_ops = {
+    php_cryphptor_stream_opener,
+    NULL,                                    /* close */
+    NULL,                                    /* fstat */
+    NULL,                                    /* stat */
+    NULL,                                    /* opendir */
+    "cryphptor",
+    NULL,                                    /* unlink */
+    NULL,                                    /* rename */
+    NULL,                                    /* mkdir */
+    NULL                                     /* rmdir */
+};
+
+static php_stream_wrapper php_cryphptor_wrapper = {
+    &php_cryphptor_wrapper_ops,
+    NULL,
+    0
+};
+
+// Определяем версию модуля
+#define PHP_CRYPTHPTOR_VERSION "1.0.0"
+
 PHP_MINIT_FUNCTION(cryphptor) {
-    orig_compile_file = zend_compile_file;
-    zend_compile_file = cryphptor_compile_file;
+    // Регистрируем протокол cryphptor://
+    php_register_url_stream_wrapper("cryphptor", &php_cryphptor_wrapper TSRMLS_CC);
     return SUCCESS;
 }
 
 PHP_MSHUTDOWN_FUNCTION(cryphptor) {
-    zend_compile_file = orig_compile_file;
     return SUCCESS;
 }
+
+// Завершающий блок
+#ifdef COMPILE_DL_CRYPTHPTOR
+ZEND_GET_MODULE(cryphptor)
+#endif
 
 PHP_MINFO_FUNCTION(cryphptor) {
     php_info_print_table_start();
@@ -178,10 +221,19 @@ PHP_MINFO_FUNCTION(cryphptor) {
     php_info_print_table_end();
 }
 
+// Объявление функций
+PHP_FUNCTION(cryphptor_open_encrypted);
+
+// Таблица функций
+static const zend_function_entry cryphptor_functions[] = {
+    PHP_FE(cryphptor_open_encrypted, NULL)
+    PHP_FE_END
+};
+
 zend_module_entry cryphptor_module_entry = {
     STANDARD_MODULE_HEADER,
     "cryphptor",
-    NULL,
+    cryphptor_functions, // Обновляем для включения функций
     PHP_MINIT(cryphptor),
     PHP_MSHUTDOWN(cryphptor),
     NULL,

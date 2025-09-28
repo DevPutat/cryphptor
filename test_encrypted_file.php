@@ -1,0 +1,1 @@
+<?php\necho \"This is a test of the encrypted file functionality.\\n\";\n?>

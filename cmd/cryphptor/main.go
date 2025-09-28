@@ -57,6 +57,18 @@ func main() {
 		fmt.Printf("ERROR: key is too short or empty: %s\n", *key)
 		os.Exit(1)
 	}
+	var keyBytes []byte
+	if len(*key) > 32 {
+		keyBytes = []byte((*key)[:32]) // trim to 32 bytes if longer
+
+	} else if len(*key) < 32 {
+		keyBytes = make([]byte, 32)
+		copy(keyBytes, []byte(*key))
+	} else {
+		keyBytes = []byte(*key)
+	}
+
+	*key = string(keyBytes)
 	var wg sync.WaitGroup
 	sem := semaphore.NewWeighted(COUNT_GORUTINE)
 	ctx := context.Background()

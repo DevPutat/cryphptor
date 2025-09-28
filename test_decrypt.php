@@ -8,24 +8,27 @@ if (!extension_loaded('cryphptor')) {
 
 echo "Расширение cryphptor загружено успешно\n";
 
-// Пример использования функции дешифрования
-// В реальной реализации эта функция будет вызываться автоматически
-// при загрузке PHP файлов, но для теста мы вызовем её напрямую
+// Пример использования расширения для чтения зашифрованного файла
+$encrypted_file = $argv[1] ?? '/tmp/encrypted_test.php'; // Путь к зашифрованному файлу как аргумент
 
-$encrypted_data = file_get_contents('/var/www/html/test_encrypted.php');
-$key = getenv('ENCRYPTION_KEY');
-
-if (empty($key)) {
-    die("Ключ шифрования не установлен в переменной окружения ENCRYPTION_KEY\n");
+if (!file_exists($encrypted_file)) {
+    die("Файл зашифрованного файла не существует: $encrypted_file\n");
 }
 
-echo "Попытка дешифрования данных...\n";
+// Используем функцию расширения для получения пути с префиксом cryphptor://
+$cryphptor_path = cryphptor_open_encrypted($encrypted_file);
+echo "Cryphptor путь: $cryphptor_path\n";
 
-// В реальной реализации здесь будет вызов функции из расширения
-// decrypted_data = cryphptor_decrypt($encrypted_data, $key);
-// Но пока используем заглушку
-$decrypted_data = "Дешифрованные данные (заглушка)";
-
-echo "Дешифрование завершено\n";
-echo "Результат: $decrypted_data\n";
+// Читаем содержимое зашифрованного файла с автоматической дешифровкой
+try {
+    $content = file_get_contents($cryphptor_path);
+    if ($content !== false) {
+        echo "Содержимое зашифрованного файла успешно прочитано:\n";
+        echo $content;
+    } else {
+        echo "Не удалось прочитать зашифрованный файл\n";
+    }
+} catch (Exception $e) {
+    echo "Ошибка при чтении зашифрованного файла: " . $e->getMessage() . "\n";
+}
 ?>

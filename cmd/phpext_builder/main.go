@@ -4,152 +4,96 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"io"
 )
 
 func main() {
-	// Получаем путь к директории проекта
 	projectDir, err := os.Getwd()
 	if err != nil {
-		fmt.Printf("Ошибка получения текущей директории: %v\n", err)
+		fmt.Printf("Error getting current directory: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Определяем путь к директории с расширением
+	// Define source and destination directories
 	phpExtDir := filepath.Join(projectDir, "internal", "phpext")
-
-	// Проверяем, что директория существует
-	if _, err := os.Stat(phpExtDir); os.IsNotExist(err) {
-		fmt.Printf("Директория с расширением не найдена: %s\n", phpExtDir)
-		os.Exit(1)
-	}
-
-	// Создаем директорию для сборки
 	buildDir := filepath.Join(projectDir, "dist", "phpext")
+
+	// Check if source directory exists
+	if _, err := os.Stat(phpExtDir); os.IsNotExist(err) {
+		fmt.Printf("Extension directory not found: %s\n", phpExtDir)
+		os.Exit(1)
+	}
+
+	// Create build directory
 	if err := os.MkdirAll(buildDir, 0755); err != nil {
-		fmt.Printf("Ошибка создания директории сборки: %v\n", err)
+		fmt.Printf("Error creating build directory: %v\n", err)
 		os.Exit(1)
 	}
 
-	// Копируем файлы расширения в директорию сборки
-	src := filepath.Join(phpExtDir, "extention_impl.c")
-	dst := filepath.Join(buildDir, "extention.c")
-	if err := copyFile(src, dst); err != nil {
-		fmt.Printf("Ошибка копирования файла extention_impl.c: %v\n", err)
+	// Очистка старых файлов в dist/phpext
+	fmt.Println("Cleaning old extension files...")
+	entries, err := os.ReadDir(buildDir)
+	if err != nil {
+		fmt.Printf("Error reading build directory: %v\n", err)
 		os.Exit(1)
 	}
-
-	// Создаем config.m4 файл для PHP extension
-	configM4 := `PHP_ARG_ENABLE(cryphptor, whether to enable cryphptor support,
-[  --enable-cryphptor          Enable cryphptor support])
-
-if test "$PHP_CRYPHPTOR" != "no"; then
-  PHP_NEW_EXTENSION(cryphptor, cryphptor.c extention.c, $ext_shared,, -DZEND_ENABLE_STATIC_TSRMLS_CACHE=1)
-  PHP_ADD_LIBRARY(ssl, 1, CRYPHPTOR_SHARED_LIBADD)
-  PHP_ADD_LIBRARY(crypto, 1, CRYPHPTOR_SHARED_LIBADD)
-  PHP_SUBST(CRYPHPTOR_SHARED_LIBADD)
-fi`
-
-	if err := os.WriteFile(filepath.Join(buildDir, "config.m4"), []byte(configM4), 0644); err != nil {
-		fmt.Printf("Ошибка создания config.m4: %v\n", err)
-		os.Exit(1)
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			oldFile := filepath.Join(buildDir, entry.Name())
+			if err := os.Remove(oldFile); err != nil {
+				fmt.Printf("Warning: could not remove %s: %v\n", entry.Name(), err)
+			} else {
+				fmt.Printf("  Removed: %s\n", entry.Name())
+			}
+		}
 	}
 
-	// Создаем php_cryphptor.h файл
-	phpHeader := `#ifndef PHP_CRYPHPTOR_H
-#define PHP_CRYPHPTOR_H
-
-extern zend_module_entry cryphptor_module_entry;
-#define phpext_cryphptor_ptr &cryphptor_module_entry
-
-#define PHP_CRYPHPTOR_VERSION "0.1.0"
-
-#ifdef PHP_WIN32
-#	define PHP_CRYPHPTOR_API __declspec(dllexport)
-#elif defined(__GNUC__) && __GNUC__ >= 4
-#	define PHP_CRYPHPTOR_API __attribute__ ((visibility("default")))
-#else
-#	define PHP_CRYPHPTOR_API
-#endif
-
-#ifdef ZTS
-#include "TSRM.h"
-#endif
-
-#if defined(ZTS) && defined(COMPILE_DL_CRYPHPTOR)
-ZEND_TSRMLS_CACHE_EXTERN()
-#endif
-
-#endif`
-
-	if err := os.WriteFile(filepath.Join(buildDir, "php_cryphptor.h"), []byte(phpHeader), 0644); err != nil {
-		fmt.Printf("Ошибка создания php_cryphptor.h: %v\n", err)
-		os.Exit(1)
+	// List of files to copy from internal/phpext to dist/phpext
+	files := []string{
+		"cryphptor_memory.c", // Версия с дешифровкой в памяти (zend_compile_file hook)
+		"config.m4",
+		"php_cryphptor.h",
 	}
 
-	// Создаем cryphptor.c файл (основной файл расширения)
-	cryphptorC := `#ifdef HAVE_CONFIG_H
-#include "config.h"
-#endif
+	fmt.Printf("Building PHP extension from %s to %s\n", phpExtDir, buildDir)
 
-#include "php.h"
-#include "php_ini.h"
-#include "ext/standard/info.h"
-#include "php_cryphptor.h"
+	// Copy all files
+	for _, filename := range files {
+		src := filepath.Join(phpExtDir, filename)
+		dst := filepath.Join(buildDir, filename)
 
-// Объявление функции
-PHP_FUNCTION(cryphptor_decrypt);
-
-// Таблица аргументов функции
-ZEND_BEGIN_ARG_INFO_EX(arginfo_cryphptor_decrypt, 0, 0, 2)
-	ZEND_ARG_INFO(0, encrypted_data)
-	ZEND_ARG_INFO(0, key)
-ZEND_END_ARG_INFO()
-
-// Таблица функций расширения
-const zend_function_entry cryphptor_functions[] = {
-	PHP_FE(cryphptor_decrypt, arginfo_cryphptor_decrypt)
-	PHP_FE_END
-};
-
-// Информация о модуле
-zend_module_entry cryphptor_module_entry = {
-	STANDARD_MODULE_HEADER,
-	"cryphptor",
-	cryphptor_functions,
-	NULL, // PHP_MINIT
-	NULL, // PHP_MSHUTDOWN
-	NULL, // PHP_RINIT
-	NULL, // PHP_RSHUTDOWN
-	NULL, // PHP_MINFO
-	PHP_CRYPHPTOR_VERSION,
-	STANDARD_MODULE_PROPERTIES
-};
-
-#ifdef COMPILE_DL_CRYPHPTOR
-#ifdef ZTS
-ZEND_TSRMLS_CACHE_DEFINE()
-#endif
-ZEND_GET_MODULE(cryphptor)
-#endif
-`
-
-	if err := os.WriteFile(filepath.Join(buildDir, "cryphptor.c"), []byte(cryphptorC), 0644); err != nil {
-		fmt.Printf("Ошибка создания cryphptor.c: %v\n", err)
-		os.Exit(1)
+		if err := copyFile(src, dst); err != nil {
+			fmt.Printf("Error copying %s: %v\n", filename, err)
+			os.Exit(1)
+		}
+		fmt.Printf("✓ Copied: %s\n", filename)
 	}
 
-	fmt.Printf("PHP расширение подготовлено в директории: %s\n", buildDir)
-	fmt.Println("Для сборки расширения выполните следующие команды в директории сборки:")
+	fmt.Printf("\n✅ PHP extension successfully prepared in: %s\n", buildDir)
+	fmt.Println("\nTo build the extension, run in the build directory:")
 	fmt.Println("  phpize")
-	fmt.Println("  ./configure")
+	fmt.Println("  ./configure --enable-cryphptor")
 	fmt.Println("  make")
+	fmt.Println("  make install")
 }
 
-// Функция для копирования файлов
 func copyFile(src, dst string) error {
-	data, err := os.ReadFile(src)
+	srcFile, err := os.Open(src)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to open source file %s: %w", src, err)
 	}
-	return os.WriteFile(dst, data, 0644)
+	defer srcFile.Close()
+
+	dstFile, err := os.Create(dst)
+	if err != nil {
+		return fmt.Errorf("failed to create destination file %s: %w", dst, err)
+	}
+	defer dstFile.Close()
+
+	_, err = io.Copy(dstFile, srcFile)
+	if err != nil {
+		return fmt.Errorf("failed to copy file: %w", err)
+	}
+
+	return nil
 }

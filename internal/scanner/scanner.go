@@ -46,7 +46,8 @@ func (s *Scanner) Scan() ([]string, error) {
 			return nil
 		}
 
-		if !info.IsDir() && strings.HasSuffix(strings.ToLower(info.Name()), ".php") {
+		if !info.IsDir() {
+			// ВСЕ файлы добавляются в список - PHP будут шифроваться, остальные копироваться
 			wg.Add(1)
 			go func(p string) {
 				defer wg.Done()

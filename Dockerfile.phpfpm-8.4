@@ -9,9 +9,9 @@ RUN apt-get update && apt-get install -y \
     git \
     libssl-dev \
     && docker-php-source extract \
-    && docker-php-ext-install opcache \
-    && docker-php-source delete \
     && rm -rf /var/lib/apt/lists/*
+
+# ВАЖНО: НЕ устанавливаем opcache - он конфликтует с zend_compile_file хуком
 
 # Копируем исходный код расширения
 COPY . /usr/src/cryphptor
@@ -27,28 +27,6 @@ RUN phpize \
 # Устанавливаем рабочую директорию
 WORKDIR /var/www/html
 
-# Создаем точку входа, которая будет дешифровывать файлы перед запуском
-COPY <<'EOF' /usr/local/bin/decrypt-and-run.sh
-#!/bin/bash
-# Скрипт для дешифрования файлов перед запуском PHP-FPM
-
-# Получаем ключ из переменной окружения
-ENCRYPTION_KEY="${ENCRYPTION_KEY:-}"
-
-# Если ключ не установлен, запускаем PHP-FPM без дешифрования
-if [ -z "$ENCRYPTION_KEY" ]; then
-    echo "ENCRYPTION_KEY не установлена, запуск PHP-FPM без дешифрования"
-    exec docker-php-entrypoint php-fpm
-fi
-
-# Здесь будет логика дешифрования файлов при запуске
-echo "Запуск PHP-FPM с дешифрованием файлов"
-
-# Запуск PHP-FPM
-exec docker-php-entrypoint php-fpm
-EOF
-
-RUN chmod +x /usr/local/bin/decrypt-and-run.sh
-
-# Устанавливаем точку входа
-ENTRYPOINT ["/usr/local/bin/decrypt-and-run.sh"]
+# КРИТИЧЕСКОЕ: Без дешифровки при старте!
+# Расширение дешифрует файлы в памяти при интерпретации
+# В контейнере хранятся ТОЛЬКО зашифрованные файлы

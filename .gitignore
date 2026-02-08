@@ -35,5 +35,5 @@ QWEN.*
 
 # Test files and directories
 test_volume/
-dist/
+# dist/
 *.tar.gz

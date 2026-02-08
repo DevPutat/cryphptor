@@ -5,6 +5,7 @@ import (
 	"crypto/cipher"
 	"crypto/rand"
 	"crypto/sha256"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -21,6 +22,10 @@ func NewSafeEncryptor(key []byte) *Encryptor {
 }
 
 func (e *Encryptor) Encrypt(src string, dst string) error {
+	dstDir := filepath.Dir(dst)
+	if err := os.MkdirAll(dstDir, 0755); err != nil {
+		return fmt.Errorf("mkdir all %q: %w", dstDir, err)
+	}
 	inFile, err := os.Open(src)
 	if err != nil {
 		return err
@@ -66,7 +71,7 @@ func (e *Encryptor) Encrypt(src string, dst string) error {
 
 	// Шифруем все данные целиком с использованием одного nonce
 	encrypted := aesGCM.Seal(nil, nonce, fileData, nil)
-	
+
 	if _, err := outFile.Write(encrypted); err != nil {
 		return err
 	}
@@ -112,7 +117,7 @@ func (e *Encryptor) Decrypt(src string, dst string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	// Читаем все зашифрованные данные
 	encryptedData, err := io.ReadAll(inFile)
 	if err != nil {
@@ -124,10 +129,10 @@ func (e *Encryptor) Decrypt(src string, dst string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	if _, err := outFile.Write(decrypted); err != nil {
 		return err
 	}
-	
+
 	return nil
 }

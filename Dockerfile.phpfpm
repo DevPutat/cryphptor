@@ -10,6 +10,12 @@ RUN apt-get update && apt-get install -y \
     git \
     libssl-dev \
     wget \
+    build-essential \
+    autoconf \
+    automake \
+    libtool \
+    re2c \
+    pkg-config \
     && docker-php-source extract \
     && docker-php-ext-install opcache \
     && docker-php-source delete \
@@ -31,13 +37,20 @@ RUN go build -ldflags "-s -w" -o dist/cryphptor ./cmd/cryphptor
 # Собираем и устанавливаем расширение
 WORKDIR /usr/src/cryphptor/dist/phpext
 RUN phpize \
-    && ./configure \
+    && ./configure --enable-cryphptor LDFLAGS="-L/usr/lib/x86_64-linux-gnu" \
     && make \
     && make install \
     && docker-php-ext-enable cryphptor
 
+# Настраиваем расширение через ini файл
+RUN echo "cryphptor.enabled=1" >> /usr/local/etc/php/conf.d/docker-php-ext-cryphptor.ini \
+    && echo "cryphptor.root=/var/www/laravel" >> /usr/local/etc/php/conf.d/docker-php-ext-cryphptor.ini
+
 # Устанавливаем рабочую директорию
-WORKDIR /var/www/html
+WORKDIR /var/www/laravel
+
+# Устанавливаем переменную окружения для ключа дешифрования
+ENV DECRYPTION_KEY=testencryptionkey12345testencrypt
 
 # Устанавливаем точку входа
 ENTRYPOINT ["docker-php-entrypoint"]

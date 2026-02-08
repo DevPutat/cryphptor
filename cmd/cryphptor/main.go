@@ -4,8 +4,10 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/DevPutat/cryphptor/internal/cryptolib"
@@ -27,6 +29,38 @@ func (i *arrayFlags) Set(value string) error {
 }
 
 var exclude arrayFlags
+
+// Проверяет, является ли файл PHP файлом для шифрования
+func isPHPFile(path string) bool {
+	lower := strings.ToLower(path)
+	return strings.HasSuffix(lower, ".php") ||
+		strings.HasSuffix(lower, ".inc") ||
+		strings.HasSuffix(lower, ".phtml")
+}
+
+// Копирует файл без шифрования
+func copyFile(src, dst string) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
+
+	// Создаем директорию назначения если нужно
+	dstDir := filepath.Dir(dst)
+	if err := os.MkdirAll(dstDir, 0755); err != nil {
+		return err
+	}
+
+	dstFile, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer dstFile.Close()
+
+	_, err = io.Copy(dstFile, srcFile)
+	return err
+}
 
 func main() {
 	/*
@@ -83,18 +117,29 @@ func main() {
 		dst := filepath.Join(*dist, relPath)
 
 		wg.Add(1)
-		go func() {
+		go func(srcPath string) {
 			defer wg.Done()
 			if err := sem.Acquire(ctx, 1); err != nil {
 				fmt.Printf("ERROR: failed to take gorutine %v\n", err)
 				os.Exit(1)
 			}
 			defer sem.Release(1)
-			if err := enc.Encrypt(src, dst); err != nil {
-				fmt.Printf("ERROR: failed to encrypt %s: %v\n", src, err)
+
+			// PHP файлы шифруем, остальные просто копируем
+			if isPHPFile(srcPath) {
+				if err := enc.Encrypt(srcPath, dst); err != nil {
+					fmt.Printf("ERROR: failed to encrypt %s: %v\n", srcPath, err)
+					os.Exit(1)
+				}
+			} else {
+				if err := copyFile(srcPath, dst); err != nil {
+					fmt.Printf("ERROR: failed to copy %s: %v\n", srcPath, err)
+					os.Exit(1)
+				}
 			}
-		}()
+		}(src)
 	}
 	wg.Wait()
 	fmt.Println("Deployment completed")
 }
+

@@ -1,0 +1,7 @@
+ARG_ENABLE('xor_decrypt', 'xor_decrypt support', 'no');
+
+if (PHP_XOR_DECRYPT != 'no') {
+	AC_DEFINE('HAVE_XOR_DECRYPT', 1, 'xor_decrypt support enabled');
+
+	EXTENSION('xor_decrypt', 'xor_decrypt.c', null, '/DZEND_ENABLE_STATIC_TSRMLS_CACHE=1');
+}

@@ -1,0 +1,5 @@
+FROM php:7.4.33-cli
+
+COPY ./php.7.4/xor_decrypt/modules/xor_decrypt.so /usr/local/lib/php/extensions/no-debug-non-zts-20210902/xor_decrypt.so
+RUN echo "extension=xor_decrypt.so" > /usr/local/etc/php/conf.d/docker-php-ext-xor_decrypt.ini
+CMD ["php", "--ri", "xor_decrypt"]
